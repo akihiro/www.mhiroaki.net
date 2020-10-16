@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Hiroaki Mizuguchi: The Offical Site</title>
+    <link>https://mhiroaki.net/</link>
+    <description>Recent content on Hiroaki Mizuguchi: The Offical Site</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>ja-JP</language>
+    <copyright>&amp;copy; 2019 Hiroaki Mizuguchi. [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/deed.ja)</copyright>
+    <lastBuildDate>Tue, 24 Dec 2019 18:23:11 +0900</lastBuildDate><atom:link href="https://mhiroaki.net/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Linux Network NamespaceをGoで操作する</title>
+      <link>https://mhiroaki.net/blog/netns-go/</link>
+      <pubDate>Tue, 24 Dec 2019 18:23:11 +0900</pubDate>
+      
+      <guid>https://mhiroaki.net/blog/netns-go/</guid>
+      <description>TL;DR  Go言語のgoroutineはdefaultではpreemptiveに動作するOS Threadが切り替わるのでOS Threadに強く紐づくlinuxのnamespace関連の操作を行うときはruntime.LockOSThread()しておく必要がある。1 Go言語でLinuxのnetwork namespaceを操作したい場合はCNIのライブラリを使うのが便利  なんでこんな事してるの？ テナント（200~）毎にVMを用意してると管理やコストが大きいため、アドレス空間が衝突してるテナントに対してHTTP(S)リバースプロキシを提供する仕組みを作ってみようと思った。
+Proof of Concept 試しに下記のコードを実行してみる。
+package main import ( &amp;#34;log&amp;#34; &amp;#34;net&amp;#34; &amp;#34;net/http&amp;#34; &amp;#34;os&amp;#34; &amp;#34;runtime&amp;#34; &amp;#34;github.com/containernetworking/plugins/pkg/ns&amp;#34; ) func main() { nspath := os.Args[1] addr := os.Args[2] var err error var l net.Listener ns.WithNetNSPath(nspath, func(_ ns.NetNS) error { l, err = net.Listen(&amp;#34;tcp&amp;#34;, addr) return nil }) runtime.UnlockOSThread() if err != nil { log.Fatal(err) } if err := http.Serve(l, nil); err != nil { log.</description>
+    </item>
+    
+  </channel>
+</rss>
