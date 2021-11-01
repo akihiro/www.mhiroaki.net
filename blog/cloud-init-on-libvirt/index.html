@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="author" content="Hiroaki Mizuguchi">
+<meta name="referrer" content="always">
+<title>Cloud Init on Libvirt - Hiroaki Mizuguchi: The Offical Site</title>
+<link rel="stylesheet" type="text/css" href="/css/main.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1><a href="https://mhiroaki.net/">Hiroaki Mizuguchi: The Offical Site</a></h1>
+  </div>
+  <nav></nav>
+</header>
+<main>
+  <article>
+    <div class="title">
+  <h1>Cloud Init on Libvirt</h1>
+  </div>
+<div class="meta">
+  <div>2021-11-01 21:51</div>
+  </div>
+<div class="content">
+  <p><a href="https://cloud.debian.org/images/cloud/">Debianのcloud image</a>をLibvirt上にて利用し、cloud-initでログイン可能にする</p>
+<h1 id="実行環境">実行環境</h1>
+<p>以下のような構成の仮想化用途のホストにてDebian VMをデプロイします。</p>
+<ul>
+<li>Intel® NUC Kit NUC5i3RYH
+<ul>
+<li>CPU: Intel Core i3-5010U CPU</li>
+<li>Memory: 16GB</li>
+<li>Storage 1TB</li>
+</ul>
+</li>
+<li>CentOS Linux release 8.4.2105</li>
+</ul>
+<h1 id="実現したいこと">実現したいこと</h1>
+<ul>
+<li>VMのセットアップはVMイメージに組み込まれたcloud-initを用いる</li>
+<li>VMはDHCPに依存せず静的設定の基づいてNWを立ち上げること</li>
+<li>cloud-initセットアップ後は指定したSSH鍵を用いてログイン可能なこと</li>
+</ul>
+<h1 id="方法">方法</h1>
+<h2 id="必要なソフトウェアのインストール">必要なソフトウェアのインストール</h2>
+<ul>
+<li>Virtual Machineの動作に必要なパッケージ
+<ul>
+<li>libvirtd</li>
+<li>qemu-kvm</li>
+</ul>
+</li>
+<li>cloud-init用のNoCloud ISOの作成に必要な物
+<ul>
+<li>genisoimage</li>
+</ul>
+</li>
+</ul>
+<h2 id="vmイメージのダウンドード">VMイメージのダウンドード</h2>
+<p><a href="https://cloud.debian.org/images/cloud/">Debianの公開サイト</a>からVMイメージをダウンロードします。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">cd /var/lib/libvirt/images
+curl -LO https://cloud.debian.org/images/cloud/bullseye/20211011-792/debian-11-genericcloud-amd64-20211011-792.qcow2
+</code></pre></div><h2 id="vmインスタンス用のストレージを作る">VMインスタンス用のストレージを作る</h2>
+<p>backing storage機能を使うベースとなるVMイメージの差分を保持するストレージを作る。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">qemu-img create -f qcow2 -b debian-11-genericcloud-amd64-20211011-792.qcow2 test.qcow2
+</code></pre></div><p>仮想ストレージのサイズも元の2GBから40GBに拡張する</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">qemu-img resize -f qcow2 test.qcow2 40G
+</code></pre></div><h2 id="cloud-init用のisoを作る">cloud-init用のISOを作る</h2>
+<p>cloud-initの<a href="https://cloudinit.readthedocs.io/en/latest/topics/datasources/nocloud.html">NoCloud Datasouce</a>の使用に従ったISOを作成する。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">genisoimage -output /var/lib/libvirt/images/test.iso -volid cidata -joliet -rock user-data meta-data network-config
+</code></pre></div><p><code>user-data</code>と<code>meta-data</code>と<code>network-config</code>のファイルについては以下を参照ください</p>
+<h3 id="meta-data">meta-data</h3>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-yaml" data-lang="yaml"><span style="color:#f92672">instance-id</span>: <span style="color:#ae81ff">test-1</span>
+<span style="color:#f92672">local-hostname</span>: <span style="color:#ae81ff">test</span>
+</code></pre></div><h3 id="user-data">user-data</h3>
+<p>書き方は<a href="https://docs.aws.amazon.com/ja_jp/AWSEC2/latest/UserGuide/user-data.html">AWSのドキュメント</a>や<a href="https://cloudinit.readthedocs.io/en/latest/topics/modules.html">cloud-initのドキュメント</a>を参照してください。
+再起動設定を入れている理由はnetwork-configの設定と内部で設定されるDHCPの設定が衝突する事へのworkaroundです。</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-yaml" data-lang="yaml"><span style="color:#75715e">#cloud-config</span>
+<span style="color:#f92672">chpasswd</span>: {<span style="color:#f92672">expire</span>: <span style="color:#66d9ef">False</span>}
+<span style="color:#f92672">ssh_pwauth</span>: <span style="color:#66d9ef">False</span>
+<span style="color:#f92672">ssh_authorized_keys</span>:
+  - <span style="color:#ae81ff">ssh-ed25519 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</span>
+<span style="color:#f92672">power_state</span>:
+  <span style="color:#f92672">mode</span>: <span style="color:#ae81ff">reboot</span>
+</code></pre></div><h3 id="network-config">network-config</h3>
+<p><a href="https://cloudinit.readthedocs.io/en/latest/topics/network-config-format-v2.html">cloud-initのドキュメント</a>を参照ください</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-yaml" data-lang="yaml"><span style="color:#f92672">version</span>: <span style="color:#ae81ff">2</span>
+<span style="color:#f92672">ethernets</span>:
+  <span style="color:#f92672">enp1s0</span>:
+    <span style="color:#f92672">match</span>:
+      <span style="color:#f92672">macaddress</span>: <span style="color:#e6db74">&#34;aa:00:00:01:00:00&#34;</span>
+    <span style="color:#f92672">addresses</span>:
+      - <span style="color:#ae81ff">10.48.1.101</span><span style="color:#ae81ff">/24</span>
+    <span style="color:#f92672">gateway4</span>: <span style="color:#ae81ff">10.48.1.253</span>
+    <span style="color:#f92672">nameservers</span>:
+      <span style="color:#f92672">addresses</span>: [<span style="color:#ae81ff">10.48.1.253</span>]
+</code></pre></div><h2 id="vmの設定ファイルを定義する">VMの設定ファイルを定義する</h2>
+<ul>
+<li>USBは利用しないので無効化する</li>
+<li>VGA周りの設定も無効化する</li>
+<li>virtio関連
+<ul>
+<li>virtio-scsiを用いてStorageとISOを繋ぐ</li>
+<li>virtio-netを用いてNICを繋ぐ</li>
+<li>virtio-rngを用いて乱数生成器をVMに繋ぐ</li>
+<li>virtio-balloonを繋ぐ</li>
+<li>Q35を用いる</li>
+</ul>
+</li>
+<li>userserialを用いてシリアルコンソールを使えるようにする</li>
+</ul>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-xml" data-lang="xml"><span style="color:#f92672">&lt;domain</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;kvm&#39;</span><span style="color:#f92672">&gt;</span>
+  <span style="color:#f92672">&lt;name&gt;</span>bgp<span style="color:#f92672">&lt;/name&gt;</span>
+  <span style="color:#f92672">&lt;memory</span> <span style="color:#a6e22e">unit=</span><span style="color:#e6db74">&#39;GiB&#39;</span><span style="color:#f92672">&gt;</span>2<span style="color:#f92672">&lt;/memory&gt;</span>
+  <span style="color:#f92672">&lt;currentMemory</span> <span style="color:#a6e22e">unit=</span><span style="color:#e6db74">&#39;GiB&#39;</span><span style="color:#f92672">&gt;</span>2<span style="color:#f92672">&lt;/currentMemory&gt;</span>
+  <span style="color:#f92672">&lt;vcpu</span> <span style="color:#a6e22e">placement=</span><span style="color:#e6db74">&#39;static&#39;</span><span style="color:#f92672">&gt;</span>2<span style="color:#f92672">&lt;/vcpu&gt;</span>
+  <span style="color:#f92672">&lt;resource&gt;</span>
+    <span style="color:#f92672">&lt;partition&gt;</span>/machine<span style="color:#f92672">&lt;/partition&gt;</span>
+  <span style="color:#f92672">&lt;/resource&gt;</span>
+  <span style="color:#f92672">&lt;os&gt;</span>
+    <span style="color:#f92672">&lt;type</span> <span style="color:#a6e22e">arch=</span><span style="color:#e6db74">&#39;x86_64&#39;</span> <span style="color:#a6e22e">machine=</span><span style="color:#e6db74">&#39;q35&#39;</span><span style="color:#f92672">&gt;</span>hvm<span style="color:#f92672">&lt;/type&gt;</span>
+    <span style="color:#f92672">&lt;boot</span> <span style="color:#a6e22e">dev=</span><span style="color:#e6db74">&#39;hd&#39;</span><span style="color:#f92672">/&gt;</span>
+    <span style="color:#f92672">&lt;bios</span> <span style="color:#a6e22e">useserial=</span><span style="color:#e6db74">&#39;yes&#39;</span><span style="color:#f92672">/&gt;</span>
+  <span style="color:#f92672">&lt;/os&gt;</span>
+  <span style="color:#f92672">&lt;features&gt;</span>
+    <span style="color:#f92672">&lt;acpi/&gt;</span>
+    <span style="color:#f92672">&lt;apic/&gt;</span>
+    <span style="color:#f92672">&lt;vmport</span> <span style="color:#a6e22e">state=</span><span style="color:#e6db74">&#39;off&#39;</span><span style="color:#f92672">/&gt;</span>
+  <span style="color:#f92672">&lt;/features&gt;</span>
+  <span style="color:#f92672">&lt;cpu</span> <span style="color:#a6e22e">mode=</span><span style="color:#e6db74">&#39;host-model&#39;</span><span style="color:#f92672">&gt;</span>
+  <span style="color:#f92672">&lt;/cpu&gt;</span>
+  <span style="color:#f92672">&lt;clock</span> <span style="color:#a6e22e">offset=</span><span style="color:#e6db74">&#39;utc&#39;</span><span style="color:#f92672">&gt;</span>
+    <span style="color:#f92672">&lt;timer</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#39;rtc&#39;</span> <span style="color:#a6e22e">tickpolicy=</span><span style="color:#e6db74">&#39;catchup&#39;</span><span style="color:#f92672">/&gt;</span>
+    <span style="color:#f92672">&lt;timer</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#39;pit&#39;</span> <span style="color:#a6e22e">tickpolicy=</span><span style="color:#e6db74">&#39;delay&#39;</span><span style="color:#f92672">/&gt;</span>
+    <span style="color:#f92672">&lt;timer</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#39;hpet&#39;</span> <span style="color:#a6e22e">present=</span><span style="color:#e6db74">&#39;no&#39;</span><span style="color:#f92672">/&gt;</span>
+  <span style="color:#f92672">&lt;/clock&gt;</span>
+  <span style="color:#f92672">&lt;on_poweroff&gt;</span>destroy<span style="color:#f92672">&lt;/on_poweroff&gt;</span>
+  <span style="color:#f92672">&lt;on_reboot&gt;</span>restart<span style="color:#f92672">&lt;/on_reboot&gt;</span>
+  <span style="color:#f92672">&lt;on_crash&gt;</span>destroy<span style="color:#f92672">&lt;/on_crash&gt;</span>
+  <span style="color:#f92672">&lt;pm&gt;</span>
+    <span style="color:#f92672">&lt;suspend-to-mem</span> <span style="color:#a6e22e">enabled=</span><span style="color:#e6db74">&#39;no&#39;</span><span style="color:#f92672">/&gt;</span>
+    <span style="color:#f92672">&lt;suspend-to-disk</span> <span style="color:#a6e22e">enabled=</span><span style="color:#e6db74">&#39;no&#39;</span><span style="color:#f92672">/&gt;</span>
+  <span style="color:#f92672">&lt;/pm&gt;</span>
+  <span style="color:#f92672">&lt;devices&gt;</span>
+    <span style="color:#f92672">&lt;emulator&gt;</span>/usr/libexec/qemu-kvm<span style="color:#f92672">&lt;/emulator&gt;</span>
+    <span style="color:#f92672">&lt;disk</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;file&#39;</span> <span style="color:#a6e22e">device=</span><span style="color:#e6db74">&#39;disk&#39;</span><span style="color:#f92672">&gt;</span>
+      <span style="color:#f92672">&lt;driver</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#39;qemu&#39;</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;qcow2&#39;</span> <span style="color:#a6e22e">cache=</span><span style="color:#e6db74">&#39;none&#39;</span> <span style="color:#a6e22e">io=</span><span style="color:#e6db74">&#39;native&#39;</span><span style="color:#f92672">/&gt;</span>
+      <span style="color:#f92672">&lt;source</span> <span style="color:#a6e22e">file=</span><span style="color:#e6db74">&#39;/var/lib/libvirt/images/test.qcow2&#39;</span><span style="color:#f92672">/&gt;</span>
+      <span style="color:#f92672">&lt;target</span> <span style="color:#a6e22e">dev=</span><span style="color:#e6db74">&#39;sda&#39;</span> <span style="color:#a6e22e">bus=</span><span style="color:#e6db74">&#39;scsi&#39;</span><span style="color:#f92672">/&gt;</span>
+    <span style="color:#f92672">&lt;/disk&gt;</span>
+    <span style="color:#f92672">&lt;disk</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;file&#39;</span> <span style="color:#a6e22e">device=</span><span style="color:#e6db74">&#39;cdrom&#39;</span><span style="color:#f92672">&gt;</span>
+      <span style="color:#f92672">&lt;driver</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#39;qemu&#39;</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;raw&#39;</span> <span style="color:#a6e22e">cache=</span><span style="color:#e6db74">&#39;none&#39;</span> <span style="color:#a6e22e">io=</span><span style="color:#e6db74">&#39;native&#39;</span><span style="color:#f92672">/&gt;</span>
+      <span style="color:#f92672">&lt;source</span> <span style="color:#a6e22e">file=</span><span style="color:#e6db74">&#39;/var/lib/libvirt/images/test.iso&#39;</span><span style="color:#f92672">/&gt;</span>
+      <span style="color:#f92672">&lt;target</span> <span style="color:#a6e22e">dev=</span><span style="color:#e6db74">&#39;sdb&#39;</span> <span style="color:#a6e22e">bus=</span><span style="color:#e6db74">&#39;scsi&#39;</span><span style="color:#f92672">/&gt;</span>
+      <span style="color:#f92672">&lt;readonly/&gt;</span>
+    <span style="color:#f92672">&lt;/disk&gt;</span>
+    <span style="color:#f92672">&lt;controller</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;scsi&#39;</span> <span style="color:#a6e22e">index=</span><span style="color:#e6db74">&#39;0&#39;</span> <span style="color:#a6e22e">model=</span><span style="color:#e6db74">&#39;virtio-scsi&#39;</span><span style="color:#f92672">&gt;</span>
+    <span style="color:#f92672">&lt;/controller&gt;</span>
+    <span style="color:#f92672">&lt;controller</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;usb&#39;</span> <span style="color:#a6e22e">index=</span><span style="color:#e6db74">&#39;0&#39;</span> <span style="color:#a6e22e">model=</span><span style="color:#e6db74">&#39;none&#39;</span><span style="color:#f92672">&gt;</span>
+    <span style="color:#f92672">&lt;/controller&gt;</span>
+    <span style="color:#f92672">&lt;controller</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;virtio-serial&#39;</span> <span style="color:#a6e22e">index=</span><span style="color:#e6db74">&#39;0&#39;</span><span style="color:#f92672">&gt;</span>
+    <span style="color:#f92672">&lt;/controller&gt;</span>
+    <span style="color:#f92672">&lt;interface</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;direct&#39;</span><span style="color:#f92672">&gt;</span>
+      <span style="color:#f92672">&lt;mac</span> <span style="color:#a6e22e">address=</span><span style="color:#e6db74">&#39;aa:00:00:01:00:00&#39;</span><span style="color:#f92672">/&gt;</span>
+      <span style="color:#f92672">&lt;source</span> <span style="color:#a6e22e">dev=</span><span style="color:#e6db74">&#39;enp0s25&#39;</span> <span style="color:#a6e22e">mode=</span><span style="color:#e6db74">&#39;vepa&#39;</span><span style="color:#f92672">/&gt;</span>
+      <span style="color:#f92672">&lt;model</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;virtio&#39;</span><span style="color:#f92672">/&gt;</span>
+    <span style="color:#f92672">&lt;/interface&gt;</span>
+    <span style="color:#f92672">&lt;serial</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;pty&#39;</span><span style="color:#f92672">&gt;</span>
+      <span style="color:#f92672">&lt;target</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;isa-serial&#39;</span> <span style="color:#a6e22e">port=</span><span style="color:#e6db74">&#39;0&#39;</span><span style="color:#f92672">&gt;</span>
+        <span style="color:#f92672">&lt;model</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#39;isa-serial&#39;</span><span style="color:#f92672">/&gt;</span>
+      <span style="color:#f92672">&lt;/target&gt;</span>
+    <span style="color:#f92672">&lt;/serial&gt;</span>
+    <span style="color:#f92672">&lt;console</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;pty&#39;</span><span style="color:#f92672">&gt;</span>
+      <span style="color:#f92672">&lt;target</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;serial&#39;</span> <span style="color:#a6e22e">port=</span><span style="color:#e6db74">&#39;0&#39;</span><span style="color:#f92672">/&gt;</span>
+    <span style="color:#f92672">&lt;/console&gt;</span>
+    <span style="color:#f92672">&lt;channel</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;unix&#39;</span><span style="color:#f92672">&gt;</span>
+      <span style="color:#f92672">&lt;target</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;virtio&#39;</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#39;org.qemu.guest_agent.0&#39;</span><span style="color:#f92672">/&gt;</span>
+      <span style="color:#f92672">&lt;address</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;virtio-serial&#39;</span> <span style="color:#a6e22e">controller=</span><span style="color:#e6db74">&#39;0&#39;</span> <span style="color:#a6e22e">bus=</span><span style="color:#e6db74">&#39;0&#39;</span> <span style="color:#a6e22e">port=</span><span style="color:#e6db74">&#39;1&#39;</span><span style="color:#f92672">/&gt;</span>
+    <span style="color:#f92672">&lt;/channel&gt;</span>
+    <span style="color:#f92672">&lt;memballoon</span> <span style="color:#a6e22e">model=</span><span style="color:#e6db74">&#39;virtio&#39;</span><span style="color:#f92672">&gt;</span>
+    <span style="color:#f92672">&lt;/memballoon&gt;</span>
+    <span style="color:#f92672">&lt;rng</span> <span style="color:#a6e22e">model=</span><span style="color:#e6db74">&#39;virtio&#39;</span><span style="color:#f92672">&gt;</span>
+      <span style="color:#f92672">&lt;backend</span> <span style="color:#a6e22e">model=</span><span style="color:#e6db74">&#39;random&#39;</span><span style="color:#f92672">&gt;</span>/dev/urandom<span style="color:#f92672">&lt;/backend&gt;</span>
+    <span style="color:#f92672">&lt;/rng&gt;</span>
+  <span style="color:#f92672">&lt;/devices&gt;</span>
+  <span style="color:#f92672">&lt;seclabel</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;dynamic&#39;</span> <span style="color:#a6e22e">model=</span><span style="color:#e6db74">&#39;selinux&#39;</span> <span style="color:#a6e22e">relabel=</span><span style="color:#e6db74">&#39;yes&#39;</span><span style="color:#f92672">/&gt;</span>
+  <span style="color:#f92672">&lt;seclabel</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#39;dynamic&#39;</span> <span style="color:#a6e22e">model=</span><span style="color:#e6db74">&#39;dac&#39;</span> <span style="color:#a6e22e">relabel=</span><span style="color:#e6db74">&#39;yes&#39;</span><span style="color:#f92672">/&gt;</span>
+<span style="color:#f92672">&lt;/domain&gt;</span>
+</code></pre></div><p>作成したXMLを読み込ませる</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">virsh define test.xml
+</code></pre></div><h2 id="vmを起動させる">VMを起動させる</h2>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">virsh start --console test
+</code></pre></div></div>
+
+  </article>
+</main>
+<footer>
+  <div>
+    <div>© 2019 Hiroaki Mizuguchi. <a href="https://creativecommons.org/licenses/by/4.0/deed.ja">CC-BY-4.0</a><p>Powered by <a href="https://gohugo.io/">Hugo</a> with <a href="https://github.com/yanlinlin82/simple-style">Simple-Style</a></div>
+  </div>
+</footer>
+<a href="https://github.com/akihiro/" class="github-corner" aria-label="View source on GitHub"><svg width="80" height="80" viewBox="0 0 250 250" style="fill:#151513; color:#fff; position: absolute; top: 0; border: 0; right: 0;" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path></svg></a><style>.github-corner:hover .octo-arm{animation:octocat-wave 560ms ease-in-out}@keyframes octocat-wave{0%,100%{transform:rotate(0)}20%,60%{transform:rotate(-25deg)}40%,80%{transform:rotate(10deg)}}@media (max-width:800px){.github-corner{display:none}}</style></body>
+</html>

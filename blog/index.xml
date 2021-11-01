@@ -7,7 +7,21 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>ja-JP</language>
     <copyright>&amp;copy; 2019 Hiroaki Mizuguchi. [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/deed.ja)</copyright>
-    <lastBuildDate>Tue, 24 Dec 2019 18:23:11 +0900</lastBuildDate><atom:link href="https://mhiroaki.net/blog/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Mon, 01 Nov 2021 21:51:20 +0900</lastBuildDate><atom:link href="https://mhiroaki.net/blog/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Cloud Init on Libvirt</title>
+      <link>https://mhiroaki.net/blog/cloud-init-on-libvirt/</link>
+      <pubDate>Mon, 01 Nov 2021 21:51:20 +0900</pubDate>
+      
+      <guid>https://mhiroaki.net/blog/cloud-init-on-libvirt/</guid>
+      <description>Debianのcloud imageをLibvirt上にて利用し、cloud-initでログイン可能にする
+実行環境 以下のような構成の仮想化用途のホストにてDebian VMをデプロイします。
+ Intel® NUC Kit NUC5i3RYH  CPU: Intel Core i3-5010U CPU Memory: 16GB Storage 1TB   CentOS Linux release 8.4.2105  実現したいこと  VMのセットアップはVMイメージに組み込まれたcloud-initを用いる VMはDHCPに依存せず静的設定の基づいてNWを立ち上げること cloud-initセットアップ後は指定したSSH鍵を用いてログイン可能なこと  方法 必要なソフトウェアのインストール  Virtual Machineの動作に必要なパッケージ  libvirtd qemu-kvm   cloud-init用のNoCloud ISOの作成に必要な物  genisoimage    VMイメージのダウンドード Debianの公開サイトからVMイメージをダウンロードします。
+cd /var/lib/libvirt/images curl -LO https://cloud.debian.org/images/cloud/bullseye/20211011-792/debian-11-genericcloud-amd64-20211011-792.qcow2 VMインスタンス用のストレージを作る backing storage機能を使うベースとなるVMイメージの差分を保持するストレージを作る。
+qemu-img create -f qcow2 -b debian-11-genericcloud-amd64-20211011-792.qcow2 test.qcow2 仮想ストレージのサイズも元の2GBから40GBに拡張する
+qemu-img resize -f qcow2 test.</description>
+    </item>
+    
     <item>
       <title>Linux Network NamespaceをGoで操作する</title>
       <link>https://mhiroaki.net/blog/netns-go/</link>
